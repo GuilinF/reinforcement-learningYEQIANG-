@@ -1,0 +1,97 @@
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torch.autograd import Variable
+import torch.optim as optim
+
+
+class Net(nn.Module):
+    def __init__(self):
+        super(Net, self).__init__()
+        self.conv1 = nn.Conv2d(1, 6, 5)
+        self.conv2 = nn.Conv2d(6, 16, 5)
+        # 进行仿射函数操作
+        # 为什么会有三层仿射函数？
+        self.fc1 = nn.Linear(16 * 5 * 5, 120)
+        self.fc2 = nn.Linear(120, 84)
+        self.fc3 = nn.Linear(84, 10)
+
+    def forward(self, x):
+        # 最大池超过2*2的窗口,输入，核大小
+        # 在kt x kh x kw区域中应用步长为dt x dh x dw的二维平均池化操作。
+        # 输出特征的数量等于 input planes / dt。
+        x = F.max_pool2d(F.relu(self.conv1(x)), (2, 2))
+        # 如果大小是正方形的，则只能指定一个数字
+        x = F.max_pool2d(F.relu(self.conv2(x)), 2)
+        # view返回一个有相同数据，但是大小不同的tensor
+        # 返回的tensor必须有与原tensor相同数据和数目的元素，但可以有不同大小
+        # view函数将张量x变形成一维的向量形式，总特征数不改变
+        # num_flat_features是为了获得x的元素数量，直接将x拍扁成向量,1*2
+        x = x.view(-1, self.num_flat_features(x))
+        x = F.relu(self.fc1(x))  # 输入x经过全连接1，再经过ReLU激活函数，然后更新x
+        x = F.relu(self.fc2(x))  # 输入x经过全连接2，再经过ReLU激活函数，然后更新x
+        x = self.fc3(x)  # 输入x经过全连接3，然后更新x
+        return x
+
+    # 使用num_flat_features函数计算张量x的总特征量（把每个数字都看出是一个特征，即特征总量）
+    # 比如x是4*2*2的张量，那么它的特征总量就是16。
+    def num_flat_features(self, x):
+        # [1:]表示需要把注意力放在后面三维上,也就是数据本来具有的维度
+        size = x.size()[1:]
+        num_features = 1
+        for s in size:
+            num_features *= s
+        return num_features
+
+
+net = Net()
+print(net)
+
+params = list(net.parameters())
+print(len(params))
+print(params[0].size())
+
+# 返回一个张量，包括从标准正态分布中随机抽取一组数
+# 样本数，通道数，高度，宽度
+input = torch.randn(1, 1, 32, 32)
+out = net(input)
+print(out)
+
+net.zero_grad()
+out.backward(torch.randn(1, 10))
+
+output = net(input)
+# torch.arange(start, end, step=1, out=None) → Tensor
+# 返回一个1维张量,长度为floor((end-start)/step)
+# 包含从start到end，以step为步长的一组序列值(默认步长为1)
+target = torch.arange(1, 11)
+target = target.float()
+print(target)
+# 同等输出这一行
+target = target.view(1, -1)
+print(target)
+criterion = nn.MSELoss()
+loss = criterion(output, target)
+print(loss)
+print(loss.grad_fn)
+print(loss.grad_fn.next_functions[0][0])
+print(loss.grad_fn.next_functions[0][0].next_functions[0][0])
+
+net.zero_grad()
+print('conv1.bias.grad before backward')
+print(net.conv1.bias.grad)
+
+
+loss.backward()
+print('conv1.bias.grad before backward')
+print(net.conv1.bias.grad)
+# torch.optim.SGD(params, lr=, momentum=0, dampening=0, weight_decay=0, nesterov=False)[source]
+# 实现随机梯度下降算法（momentum可选）
+optimizer = optim.SGD(net.parameters(), lr=0.01)
+# 在训练的循环周期中
+optimizer.zero_grad()
+output = net(input)
+loss = criterion(output, target)
+loss.backward()
+optimizer.step()
+print(loss)
